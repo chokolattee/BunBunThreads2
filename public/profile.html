@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Complete Profile</title>
+
+  <!-- jQuery -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+  <!-- Bootstrap CSS & JS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Your custom CSS -->
+  <link rel="stylesheet" href="/css/profile.css" />
+  <script src="/js/profile.js"></script>
+</head>
+<body>
+
+  <!-- Header placeholder -->
+  <div id="header">Loading header...</div>
+
+  <!-- Page Content -->
+  <div class="container form mt-5 pt-5">
+    <h2>Complete Your Profile</h2>
+    <img id="profileImagePreview" src="https://via.placeholder.com/120" alt="Profile Picture" />
+
+    <form id="profileForm" enctype="multipart/form-data">
+      <select name="title" id="title" class="form-select mb-3">
+        <option value="">Select Title</option>
+        <option value="Mr.">Mr.</option>
+        <option value="Ms.">Ms.</option>
+        <option value="Mrs.">Mrs.</option>
+      </select>
+
+      <input type="hidden" name="userId" id="userId" />
+
+      <div class="form-row mb-3">
+        <input type="text" name="fname" id="fname" placeholder="First Name" class="form-control mb-2" required />
+        <input type="text" name="lname" id="lname" placeholder="Last Name" class="form-control" required />
+      </div>
+
+      <div class="form-row mb-3">
+        <input type="text" name="addressline" id="addressline" placeholder="Address" class="form-control mb-2" />
+        <input type="text" name="town" id="town" placeholder="Town" class="form-control" />
+      </div>
+
+      <div class="form-row mb-3">
+        <input type="text" name="phone" id="phone" placeholder="Phone" class="form-control mb-2" />
+        <input type="file" name="image" id="image" accept="image/*" class="form-control" />
+      </div>
+
+      <button type="submit" class="btn btn-primary">Save Profile</button>
+    </form>
+    
+    <p id="profileMsg" class="mt-3"></p>
+  </div>
+</body>
+</html>

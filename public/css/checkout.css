@@ -1,0 +1,31 @@
+    .checkout-card {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      background-color: #f8f9fa;
+      border: 1px solid #ddd;
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 15px;
+    }
+
+    .checkout-card img {
+      width: 80px;
+      height: 80px;
+      object-fit: contain;
+      border-radius: 5px;
+      background: #fff;
+    }
+
+    .checkout-details {
+      flex-grow: 1;
+    }
+
+    .checkout-details h6 {
+      margin: 0;
+      font-weight: bold;
+    }
+
+    .checkout-details small {
+      color: #666;
+    }

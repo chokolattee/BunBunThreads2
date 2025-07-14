@@ -1,0 +1,47 @@
+ .order-card {
+      border: 1px solid #dee2e6;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 20px;
+      background: #f9f9f9;
+    }
+
+    .order-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px dashed #ccc;
+      margin-bottom: 10px;
+      padding-bottom: 5px;
+    }
+
+    .order-items {
+      margin-top: 10px;
+    }
+
+    .order-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+    }
+
+    .order-status {
+      font-weight: bold;
+    }
+
+    .order-status.Pending {
+      color: orange;
+    }
+
+    .order-status.Completed {
+      color: green;
+    }
+
+    .order-status.Cancelled,
+    .order-status.Rejected {
+      color: red;
+    }
+
+    .order-status.InProgress {
+      color: #0d6efd;
+    }
