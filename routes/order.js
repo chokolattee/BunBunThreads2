@@ -13,4 +13,6 @@ router.get('/shipping', orderController.getShippingOptions);
 router.get('/admin', orderController.getAllOrders);
 router.get('/admin/:orderId', orderController.getOrderById);
 router.put('/admin/:orderId/status', orderController.updateOrderStatus);
+router.delete('/admin/:orderId/delete', orderController.softDeleteOrder);
+router.put('/admin/:orderId/restore', orderController.restoreOrder);
 module.exports = router;

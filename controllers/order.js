@@ -217,6 +217,7 @@ const getOrdersByCustomer = (req, res) => {
             o.date_delivered,
             o.shipping_id,
             o.status,
+            o.deleted_at,
             CONCAT(c.fname, ' ', c.lname) AS customer_name,
             s.region AS shipping_method,
             COUNT(ol.item_id) AS total_items
@@ -241,9 +242,8 @@ const getOrdersByCustomer = (req, res) => {
         const formattedOrders = orders.map(order => ({
             ...order,
             date_placed: order.date_placed ? new Date(order.date_placed).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) : null,
-date_shipped: order.date_shipped ? new Date(order.date_shipped).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) : null,
-date_delivered: order.date_delivered ? new Date(order.date_delivered).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) : null,
-
+            date_shipped: order.date_shipped ? new Date(order.date_shipped).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) : null,
+            date_delivered: order.date_delivered ? new Date(order.date_delivered).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) : null,
         }));
 
         return res.status(200).json({
@@ -267,6 +267,7 @@ const getOrderById = (req, res) => {
             o.date_delivered,
             o.shipping_id,
             o.status,
+            o.deleted_at,
             CONCAT(c.fname, ' ', c.lname) AS customer_name,
             s.region AS shipping_method,
             s.rate AS shipping_rate
@@ -333,7 +334,6 @@ const getOrderById = (req, res) => {
         });
     });
 };
-
 // Update order status
 const updateOrderStatus = (req, res) => {
     const orderId = req.params.orderId;
@@ -392,6 +392,57 @@ const updateOrderStatus = (req, res) => {
     });
 };
 
+const softDeleteOrder = (req, res) => {
+  const orderId = req.params.orderId;
+  
+    const lineSql = `UPDATE orderline SET deleted_at = NOW() WHERE orderinfo_id = ?`;
+  const orderSql = `UPDATE orderinfo SET deleted_at = NOW() WHERE orderinfo_id = ?`;
+
+
+  db.beginTransaction(err => {
+    if (err) return res.status(500).json({ error: 'Transaction failed', details: err });
+
+    db.query(orderSql, [orderId], (err) => {
+      if (err) return db.rollback(() => res.status(500).json({ error: 'Error soft deleting orderinfo', details: err }));
+
+      db.query(lineSql, [orderId], (err) => {
+        if (err) return db.rollback(() => res.status(500).json({ error: 'Error soft deleting orderlines', details: err }));
+
+        db.commit(err => {
+          if (err) return db.rollback(() => res.status(500).json({ error: 'Commit failed', details: err }));
+          return res.status(200).json({ success: true, message: 'Order and order lines soft deleted' });
+        });
+      });
+    });
+  });
+};
+
+const restoreOrder = (req, res) => {
+  const orderId = req.params.orderId;
+
+    const lineSql = `UPDATE orderline SET deleted_at = NULL WHERE orderinfo_id = ?`;
+  const orderSql = `UPDATE orderinfo SET deleted_at = NULL WHERE orderinfo_id = ?`;
+
+
+  db.beginTransaction(err => {
+    if (err) return res.status(500).json({ error: 'Transaction failed', details: err });
+
+    db.query(orderSql, [orderId], (err) => {
+      if (err) return db.rollback(() => res.status(500).json({ error: 'Error restoring orderinfo', details: err }));
+
+      db.query(lineSql, [orderId], (err) => {
+        if (err) return db.rollback(() => res.status(500).json({ error: 'Error restoring orderlines', details: err }));
+
+        db.commit(err => {
+          if (err) return db.rollback(() => res.status(500).json({ error: 'Commit failed', details: err }));
+          return res.status(200).json({ success: true, message: 'Order and order lines restored' });
+        });
+      });
+    });
+  });
+};
+
+
 
 
 module.exports = {
@@ -400,5 +451,7 @@ module.exports = {
   getShippingOptions,
   getAllOrders,
   getOrderById,
-  updateOrderStatus
+  updateOrderStatus,
+  softDeleteOrder,
+  restoreOrder
 };
