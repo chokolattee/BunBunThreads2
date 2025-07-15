@@ -56,71 +56,71 @@ const getAllItems = (req, res) => {
     }
 };
 
-// Get items by category (public) - Fixed to use item_images table
-const getItemsByCategory = (req, res) => {
-    const categoryId = req.params.categoryId;
+// // Get items by category (public) 
+// const getItemsByCategory = (req, res) => {
+//     const categoryId = req.params.categoryId;
 
-    const sql = `
-        SELECT 
-            i.item_id, 
-            i.item_name, 
-            i.sell_price
-        FROM item i
-        WHERE i.deleted_at IS NULL 
-            AND i.category_id = ? 
-            AND i.category_id IN (
-                SELECT category_id FROM category WHERE deleted_at IS NULL
-            )
-        GROUP BY i.item_id
-    `;
+//     const sql = `
+//         SELECT 
+//             i.item_id, 
+//             i.item_name, 
+//             i.sell_price
+//         FROM item i
+//         WHERE i.deleted_at IS NULL 
+//             AND i.category_id = ? 
+//             AND i.category_id IN (
+//                 SELECT category_id FROM category WHERE deleted_at IS NULL
+//             )
+//         GROUP BY i.item_id
+//     `;
 
-    const imagesSql = `
-        SELECT item_id, image_path 
-        FROM item_images 
-        WHERE deleted_at IS NULL
-    `;
+//     const imagesSql = `
+//         SELECT item_id, image_path 
+//         FROM item_images 
+//         WHERE deleted_at IS NULL
+//     `;
 
-    db.query(sql, [categoryId], (err, results) => {
-        if (err) {
-            console.error('❌ SQL Error:', err.message);
-            return res.status(500).json({ status: 'error', message: 'Internal Server Error' });
-        }
+//     db.query(sql, [categoryId], (err, results) => {
+//         if (err) {
+//             console.error('❌ SQL Error:', err.message);
+//             return res.status(500).json({ status: 'error', message: 'Internal Server Error' });
+//         }
 
-        // Get all images
-        db.query(imagesSql, (err, images) => {
-            if (err) {
-                console.error('❌ Images SQL Error:', err.message);
-                return res.status(500).json({ status: 'error', message: 'Internal Server Error' });
-            }
+//         // Get all images
+//         db.query(imagesSql, (err, images) => {
+//             if (err) {
+//                 console.error('❌ Images SQL Error:', err.message);
+//                 return res.status(500).json({ status: 'error', message: 'Internal Server Error' });
+//             }
 
-            // Group images by item_id
-            const imagesByItem = images.reduce((acc, image) => {
-                if (!acc[image.item_id]) {
-                    acc[image.item_id] = [];
-                }
-                acc[image.item_id].push(image.image_path);
-                return acc;
-            }, {});
+//             // Group images by item_id
+//             const imagesByItem = images.reduce((acc, image) => {
+//                 if (!acc[image.item_id]) {
+//                     acc[image.item_id] = [];
+//                 }
+//                 acc[image.item_id].push(image.image_path);
+//                 return acc;
+//             }, {});
 
-            const formatted = results.map(row => {
-                return {
-                    item_id: row.item_id,
-                    item_name: row.item_name,
-                    sell_price: row.sell_price,
-                    images: imagesByItem[row.item_id] || []
-                };
-            });
+//             const formatted = results.map(row => {
+//                 return {
+//                     item_id: row.item_id,
+//                     item_name: row.item_name,
+//                     sell_price: row.sell_price,
+//                     images: imagesByItem[row.item_id] || []
+//                 };
+//             });
 
-            res.json({ status: 'success', data: formatted });
-        });
-    });
-};
+//             res.json({ status: 'success', data: formatted });
+//         });
+//     });
+// };
 
 // --------------------
 // ADMIN FUNCTIONS
 // --------------------
 
-// Get all items with stock and category - Fixed to use item_images table only
+// Get all items with stock and category 
 const getAllItemsWithStock = (req, res) => {
     const sql = `
         SELECT 
@@ -177,7 +177,7 @@ const getAllItemsWithStock = (req, res) => {
     });
 };
 
-// Get single item - Fixed to use item_images table only
+// Get single item 
 const getSingleItem = (req, res) => {
     const sql = `
         SELECT i.*, s.quantity
@@ -215,7 +215,7 @@ const getSingleItem = (req, res) => {
     });
 };
 
-// Create item - Remove image column from item table insertion
+// Create item 
 const createItem = (req, res) => {
     const { item_name, description, cost_price, sell_price, quantity, category_id } = req.body;
     const imageFiles = req.files || [];
@@ -224,7 +224,6 @@ const createItem = (req, res) => {
         return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Remove image column from item table insertion
     const itemSql = `
         INSERT INTO item (item_name, description, cost_price, sell_price, category_id)
         VALUES (?, ?, ?, ?, ?)
@@ -255,13 +254,12 @@ const createItem = (req, res) => {
     });
 };
 
-// Update item - Remove image column from item table update
+// Update item
 const updateItem = (req, res) => {
     const itemId = req.params.id;
     const { item_name, description, cost_price, sell_price, quantity, category_id } = req.body;
     const imageFiles = req.files || [];
 
-    // Remove image column from item table update
     const itemSql = `
         UPDATE item
         SET item_name = ?, description = ?, cost_price = ?, sell_price = ?, category_id = ?
@@ -319,7 +317,7 @@ const restoreItem = (req, res) => {
     });
 };
 
-// Get all items including deleted - Fixed to use item_images table only
+// Get all items including deleted
 const getAllItemsIncludingDeleted = (req, res) => {
     const sql = `
         SELECT 
@@ -357,7 +355,7 @@ const getAllItemsIncludingDeleted = (req, res) => {
                 const itemImages = imagesByItem[row.item_id] || [];
                 return {
                     ...row,
-                    image: itemImages[0] || null, // First image for backward compatibility
+                    image: itemImages[0] || null, 
                     all_images: itemImages
                 };
             });
@@ -367,7 +365,7 @@ const getAllItemsIncludingDeleted = (req, res) => {
     });
 };
 
-// Search items by name - Fixed to use item_images table only
+// Search items by name 
 const searchItems = (req, res) => {
     const { term } = req.params;
     const sql = `
@@ -429,7 +427,7 @@ const searchItems = (req, res) => {
 // --------------------
 module.exports = {
     getAllItems,
-    getItemsByCategory,
+    // getItemsByCategory,
     getAllItemsWithStock,
     getSingleItem,
     createItem,

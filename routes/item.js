@@ -5,7 +5,7 @@ const upload = require('../middlewares/upload');
 
 // PUBLIC ROUTES
 router.get('/', itemController.getAllItems);
-router.get('/category/:categoryId', itemController.getItemsByCategory);
+// router.get('/category/:categoryId', itemController.getItemsByCategory);
 router.get('/search/:term', itemController.searchItems);
 
 // ADMIN ROUTES

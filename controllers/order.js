@@ -206,36 +206,195 @@ const getOrdersByCustomer = (req, res) => {
     });
   };
 
-const getAllOrders = (req, res) => {
+  const getAllOrders = (req, res) => {
     const sql = `
-        SELECT o.*, c.fname, c.lname, c.email, s.shipping_rate, s.cost AS shipping_cost
+        SELECT 
+            o.orderinfo_id,
+            o.customer_id,
+            o.date_placed,
+            o.date_shipped,
+            o.date_delivered,
+            o.shipping_id,
+            o.status,
+            CONCAT(c.fname, ' ', c.lname) AS customer_name,
+            s.region AS shipping_method,
+            COUNT(ol.item_id) AS total_items
         FROM orderinfo o
-        LEFT JOIN customers c ON o.customer_id = c.customer_id
+        JOIN customer c ON o.customer_id = c.customer_id
         LEFT JOIN shipping s ON o.shipping_id = s.shipping_id
+        LEFT JOIN orderline ol ON o.orderinfo_id = ol.orderinfo_id
+        GROUP BY o.orderinfo_id
         ORDER BY o.date_placed DESC
     `;
 
-    try {
-        connection.query(sql, (err, orders) => {
-            if (err) {
-                console.error(err);
-                return res.status(500).json({ error: 'Database error fetching orders' });
-            }
-
-            return res.status(200).json({
-                success: true,
-                orders
+    db.query(sql, (err, orders) => {
+        if (err) {
+            console.error('Database error fetching orders:', err);
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Database error fetching orders',
+                error: err.message 
             });
+        }
+
+        const formattedOrders = orders.map(order => ({
+            ...order,
+            date_placed: order.date_placed ? new Date(order.date_placed).toLocaleDateString() : null,
+            date_shipped: order.date_shipped ? new Date(order.date_shipped).toLocaleDateString() : null,
+            date_delivered: order.date_delivered ? new Date(order.date_delivered).toLocaleDateString() : null
+        }));
+
+        return res.status(200).json({
+            success: true,
+            data: formattedOrders
         });
-    } catch (error) {
-        console.error(error);
-        return res.status(500).json({ error: 'Server error' });
-    }
+    });
 };
 
+// Get order details by ID
+const getOrderById = (req, res) => {
+    const orderId = req.params.orderId;
+
+    // Get basic order info
+    const orderSql = `
+        SELECT 
+            o.orderinfo_id,
+            o.customer_id,
+            o.date_placed,
+            o.date_shipped,
+            o.date_delivered,
+            o.shipping_id,
+            o.status,
+            CONCAT(c.fname, ' ', c.lname) AS customer_name,
+            s.region AS shipping_method,
+            s.rate AS shipping_rate
+        FROM orderinfo o
+        JOIN customer c ON o.customer_id = c.customer_id
+        LEFT JOIN shipping s ON o.shipping_id = s.shipping_id
+        WHERE o.orderinfo_id = ?
+    `;
+
+    db.query(orderSql, [orderId], (err, orderResults) => {
+        if (err) {
+            console.error('Error fetching order:', err);
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Failed to fetch order details',
+                error: err.message 
+            });
+        }
+
+        if (orderResults.length === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'Order not found' 
+            });
+        }
+
+        const order = orderResults[0];
+
+        // Get order items
+        const itemsSql = `
+            SELECT 
+                ol.item_id,
+                ol.quantity,
+                i.item_name,
+                i.sell_price AS unit_price,
+                (ol.quantity * i.sell_price) AS total_price
+            FROM orderline ol
+            JOIN item i ON ol.item_id = i.item_id
+            WHERE ol.orderinfo_id = ?
+        `;
+
+        db.query(itemsSql, [orderId], (err, itemResults) => {
+            if (err) {
+                console.error('Error fetching order items:', err);
+                return res.status(500).json({ 
+                    success: false, 
+                    message: 'Failed to fetch order items',
+                    error: err.message 
+                });
+            }
+
+            const subtotal = itemResults.reduce((sum, item) => sum + item.total_price, 0);
+            const total = subtotal + (order.shipping_rate || 0);
+
+            const result = {
+                ...order,
+                items: itemResults,
+                subtotal: subtotal,
+                total: total,
+                total_items: itemResults.length
+            };
+
+            res.json({ success: true, data: result });
+        });
+    });
+};
+
+// Update order status
+const updateOrderStatus = (req, res) => {
+    const orderId = req.params.orderId;
+    const { status } = req.body;
+
+    if (!status) {
+        return res.status(400).json({ 
+            success: false, 
+            message: 'Status is required' 
+        });
+    }
+
+    // Validate status value
+    const validStatuses = ['Pending', 'Shipped', 'Delivered', 'Cancelled'];
+    if (!validStatuses.includes(status)) {
+        return res.status(400).json({ 
+            success: false, 
+            message: 'Invalid status value' 
+        });
+    }
+
+
+    let updateSql = 'UPDATE orderinfo SET status = ?';
+    const params = [status];
+
+    if (status === 'Shipped') {
+        updateSql += ', date_shipped = NOW()';
+    } else if (status === 'Delivered') {
+        updateSql += ', date_delivered = NOW()';
+    }
+
+    updateSql += ' WHERE orderinfo_id = ?';
+    params.push(orderId);
+
+    db.query(updateSql, params, (err, result) => {
+        if (err) {
+            console.error('Error updating order status:', err);
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Failed to update order status',
+                error: err.message 
+            });
+        }
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'Order not found' 
+            });
+        }
+
+        res.json({ 
+            success: true, 
+            message: 'Order status updated successfully' 
+        });
+    });
+};
 
 module.exports = {
   createOrder,
   getOrdersByCustomer,
-  getShippingOptions
+  getShippingOptions,
+  getAllOrders,
+  getOrderById,
+  updateOrderStatus
 };

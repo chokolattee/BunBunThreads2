@@ -96,7 +96,7 @@ $(document).ready(async function () {
                 return;
             }
 
-            // Get orders with proper error handling
+            // Get orders
             const ordersRes = await $.ajax({
                 url: `${API_BASE_URL}/api/orders/customer/${customerId}`,
                 method: 'GET',

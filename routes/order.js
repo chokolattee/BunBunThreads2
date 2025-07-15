@@ -9,4 +9,8 @@ router.post('/', orderController.createOrder);
 router.get('/customer/:customerId', orderController.getOrdersByCustomer);
 router.get('/shipping', orderController.getShippingOptions);
 
+// Admin
+router.get('/admin', orderController.getAllOrders);
+router.get('/admin/:orderId', orderController.getOrderById);
+router.put('/admin/:orderId/status', orderController.updateOrderStatus);
 module.exports = router;
