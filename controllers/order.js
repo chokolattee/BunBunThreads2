@@ -139,7 +139,6 @@ const createOrder = (req, res) => {
 const getOrdersByCustomer = (req, res) => {
     const customerId = req.params.customerId;
 
-    // Get orders + shipping info
     const sql = `
       SELECT 
         o.orderinfo_id,
