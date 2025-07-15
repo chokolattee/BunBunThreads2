@@ -1,27 +1,13 @@
 $(document).ready(async function () {
     const API_BASE_URL = 'http://localhost:3000';
 
-    // Main orders table - filter out deleted orders
     const otable = $('#otable').DataTable({
         ajax: {
             url: `${API_BASE_URL}/api/orders/admin`,
-            dataSrc: function(json) {
-                // Filter out deleted orders
-                return json.data.filter(order => !order.deleted_at);
-            }
+            dataSrc: 'data'
         },
         dom: 'Bfrtip',
-        buttons: [
-            'pdf', 
-            'excel',
-            {
-                text: '<i class="fas fa-archive"></i> Archive',
-                className: 'btn btn-secondary',
-                action: function (e, dt, node, config) {
-                    showArchiveModal();
-                }
-            }
-        ],
+        buttons: ['pdf', 'excel'],
         columns: [
             { data: 'orderinfo_id' },
             { data: 'customer_name' },
@@ -69,6 +55,7 @@ $(document).ready(async function () {
                 data: null,
                 title: 'Actions',
                 render: function (data, type, row) {
+                    const isDeleted = !!row.deleted_at;
                     return `
         <div class="btn-group" role="group">
             <button class="btn btn-sm btn-primary view-order" data-id="${row.orderinfo_id}">
@@ -77,9 +64,14 @@ $(document).ready(async function () {
             <button class="btn btn-sm btn-warning edit-order" data-id="${row.orderinfo_id}">
                 <i class="fas fa-edit"></i> Edit
             </button>
-            <button class="btn btn-sm btn-danger delete-order" data-id="${row.orderinfo_id}">
-                <i class="fas fa-trash"></i> Delete
-            </button>
+           ${isDeleted
+                            ? `<button class="btn btn-sm btn-success restore-order" data-id="${row.orderinfo_id}">
+       <i class="fas fa-undo"></i> Restore
+     </button>`
+                            : `<button class="btn btn-sm btn-danger delete-order" data-id="${row.orderinfo_id}">
+       <i class="fas fa-trash"></i> Delete
+     </button>`
+                        }
         </div>
     `;
                 }
@@ -89,147 +81,6 @@ $(document).ready(async function () {
             console.log('DataTable initialized');
         }
     });
-
-    // Archive table - show only deleted orders
-    let archiveTable = null;
-
-    // Function to show archive modal
-    function showArchiveModal() {
-        // Create the archive modal HTML if it doesn't exist
-        if ($('#archiveModal').length === 0) {
-            const archiveModalHTML = `
-                <div class="modal fade" id="archiveModal" tabindex="-1" role="dialog" aria-labelledby="archiveModalLabel" aria-hidden="true">
-                    <div class="modal-dialog modal-xl" role="document">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title" id="archiveModalLabel">
-                                    <i class="fas fa-archive"></i> Archived Orders
-                                </h5>
-                                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                                    <span aria-hidden="true">&times;</span>
-                                </button>
-                            </div>
-                            <div class="modal-body">
-                                <div class="table-responsive">
-                                    <table id="archiveTable" class="table table-striped table-bordered table-hover" style="width:100%">
-                                        <thead class="thead-dark">
-                                            <tr>
-                                                <th>Order ID</th>
-                                                <th>Customer</th>
-                                                <th>Date Placed</th>
-                                                <th>Date Shipped</th>
-                                                <th>Date Delivered</th>
-                                                <th>Shipping Method</th>
-                                                <th>Status</th>
-                                                <th>Date Deleted</th>
-                                                <th>Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-            $('body').append(archiveModalHTML);
-        }
-
-        // Initialize or reload archive table
-        if (archiveTable) {
-            archiveTable.destroy();
-        }
-
-        archiveTable = $('#archiveTable').DataTable({
-            ajax: {
-                url: `${API_BASE_URL}/api/orders/admin`,
-                dataSrc: function(json) {
-                    // Filter to show only deleted orders
-                    return json.data.filter(order => order.deleted_at);
-                }
-            },
-            dom: 'Bfrtip',
-            buttons: ['pdf', 'excel'],
-            columns: [
-                { data: 'orderinfo_id' },
-                { data: 'customer_name' },
-                {
-                    data: 'date_placed',
-                    title: 'Date Placed',
-                    render: function (data) {
-                        return data ? formatDate(data) : 'N/A';
-                    }
-                },
-                {
-                    data: 'date_shipped',
-                    title: 'Date Shipped',
-                    render: function (data) {
-                        return data ? formatDate(data) : 'Not shipped';
-                    }
-                },
-                {
-                    data: 'date_delivered',
-                    title: 'Date Delivered',
-                    render: function (data) {
-                        return data ? formatDate(data) : 'Not delivered';
-                    }
-                },
-                {
-                    data: 'shipping_method',
-                    title: 'Shipping Method',
-                    render: function (data) {
-                        return data || 'N/A';
-                    }
-                },
-                {
-                    data: 'status',
-                    title: 'Status',
-                    render: function (data) {
-                        let badgeClass = 'badge-secondary';
-                        if (data === 'Shipped') badgeClass = 'badge-primary';
-                        if (data === 'Delivered') badgeClass = 'badge-success';
-                        if (data === 'Cancelled') badgeClass = 'badge-danger';
-                        if (data === 'Pending') badgeClass = 'badge-warning';
-                        return `<span class="badge ${badgeClass}">${data}</span>`;
-                    }
-                },
-                {
-                    data: 'deleted_at',
-                    title: 'Date Deleted',
-                    render: function (data) {
-                        return data ? formatDate(data) : 'N/A';
-                    }
-                },
-                {
-                    data: null,
-                    title: 'Actions',
-                    render: function (data, type, row) {
-                        return `
-            <div class="btn-group" role="group">
-                <button class="btn btn-sm btn-primary view-order" data-id="${row.orderinfo_id}">
-                    <i class="fas fa-eye"></i> View
-                </button>
-                <button class="btn btn-sm btn-success restore-order" data-id="${row.orderinfo_id}">
-                    <i class="fas fa-undo"></i> Restore
-                </button>
-            </div>
-        `;
-                    }
-                }
-            ],
-            initComplete: function () {
-                console.log('Archive table initialized');
-            }
-        });
-
-        // Show the modal
-        $('#archiveModal').modal('show');
-    }
 
     // Helper function to format dates
     function formatDate(dateString) {
@@ -423,7 +274,7 @@ $(document).ready(async function () {
         }
     });
 
-    // View order details (works for both main table and archive table)
+    // View order details
     $(document).on('click', '.view-order', async function () {
         const orderId = $(this).data('id');
 
@@ -631,7 +482,6 @@ $(document).ready(async function () {
         }
     });
 
-    // Delete order (soft delete)
     $(document).on('click', '.delete-order', function () {
         const orderId = $(this).data('id');
 
@@ -658,7 +508,7 @@ $(document).ready(async function () {
                         }
 
                         Swal.fire('Deleted!', 'The order has been marked as deleted.', 'success');
-                        otable.ajax.reload();
+                        $('#otable').DataTable().ajax.reload();
                     });
                 })
                 .catch(function (err) {
@@ -667,7 +517,7 @@ $(document).ready(async function () {
         });
     });
 
-    // Restore order (works for both main table and archive table)
+
     $(document).on('click', '.restore-order', function () {
         const orderId = $(this).data('id');
 
@@ -694,10 +544,7 @@ $(document).ready(async function () {
                         }
 
                         Swal.fire('Restored!', 'The order has been restored successfully.', 'success');
-                        otable.ajax.reload();
-                        if (archiveTable) {
-                            archiveTable.ajax.reload();
-                        }
+                        $('#otable').DataTable().ajax.reload();
                     });
                 })
                 .catch(function (err) {
@@ -706,9 +553,10 @@ $(document).ready(async function () {
         });
     });
 
-    // Export functions to global scope
+
+
+
     window.showOrderDetailsModal = showOrderDetailsModal;
-    window.showArchiveModal = showArchiveModal;
     window.formatDate = formatDate;
     window.getStatusBadge = getStatusBadge;
 });

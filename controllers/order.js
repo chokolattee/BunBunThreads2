@@ -1,4 +1,5 @@
 const db = require('../config/database'); 
+const sendEmail = require('../utils/sendEmail');
 
 const getShippingOptions = (req, res) => {
   const sql = `SELECT shipping_id, region, rate FROM shipping`;
@@ -14,7 +15,6 @@ const getShippingOptions = (req, res) => {
 };
 
 const createOrder = (req, res) => {
-  
   const { customer_id, date_placed, shipping_id, status, items } = req.body;
 
   if (!customer_id || !date_placed || !shipping_id || !items || !Array.isArray(items) || items.length === 0) {
@@ -120,10 +120,82 @@ const createOrder = (req, res) => {
                         });
                       }
 
-                      res.json({ 
-                        success: true, 
-                        message: 'Order created and stock updated successfully', 
-                        orderinfo_id 
+                      // ✅ Fetch customer and shipping info
+                      const customerDetailsSql = `
+                        SELECT u.email, CONCAT(c.fname, ' ', c.lname) AS fullName, s.region, s.rate
+                        FROM customer c
+                        JOIN users u ON u.id = c.user_id
+                        JOIN shipping s ON s.shipping_id = ?
+                        WHERE c.customer_id = ?
+                      `;
+
+                      db.query(customerDetailsSql, [shipping_id, customer_id], (err, userResult) => {
+                        if (err || !userResult.length) {
+                          console.error('Email fetch error:', err);
+                          return res.json({ success: true, message: 'Order created but customer info not found.', orderinfo_id });
+                        }
+
+                        const { email, fullName, region, rate } = userResult[0];
+
+                        // ✅ Now fetch item details
+                        const itemDetailsSql = `
+                          SELECT i.item_name, i.sell_price AS price, ol.quantity
+                          FROM orderline ol
+                          JOIN item i ON ol.item_id = i.item_id
+                          WHERE ol.orderinfo_id = ?
+                        `;
+
+                        db.query(itemDetailsSql, [orderinfo_id], (err, itemRows) => {
+                          if (err) {
+                            console.error('Item fetch error:', err);
+                            return res.json({ success: true, message: 'Order created. Failed to build receipt.', orderinfo_id });
+                          }
+
+                          const itemsHtml = itemRows.map(item => `
+                            <tr>
+                              <td>${item.item_name}</td>
+                              <td>${item.quantity}</td>
+                              <td>₱${parseFloat(item.price).toFixed(2)}</td>
+                              <td>₱${(parseFloat(item.price) * item.quantity).toFixed(2)}</td>
+                            </tr>
+                          `).join('');
+
+                          const subtotal = itemRows.reduce((sum, i) => sum + parseFloat(i.price) * i.quantity, 0);
+                          const total = (subtotal + parseFloat(rate)).toFixed(2);
+
+                          const message = `
+                            <h3>Hi ${fullName || 'Customer'},</h3>
+                            <p>Thank you for placing your order with <strong>BunBun Threads</strong>!</p>
+                            <p><strong>Order ID:</strong> ${orderinfo_id}</p>
+                            <p><strong>Date Placed:</strong> ${new Date(date_placed).toLocaleDateString()}</p>
+
+                            <h4>Order Summary</h4>
+                            <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">
+                              <thead>
+                                <tr><th>Item</th><th>Qty</th><th>Price</th><th>Subtotal</th></tr>
+                              </thead>
+                              <tbody>${itemsHtml}</tbody>
+                            </table>
+                            <p><strong>Shipping:</strong> ${region} - ₱${parseFloat(rate).toFixed(2)}</p>
+                            <p><strong>Total:</strong> ₱${total}</p>
+
+                            <br><p>We will notify you once your order status is updated.<br></p>
+                          `;
+
+                          // Send email (make sure sendEmail is properly imported/defined)
+                          sendEmail({
+                            email,
+                            subject: `BunBun Threads - Order #${orderinfo_id} Confirmation`,
+                            message
+                          })
+                          .then(() => {
+                            res.json({ success: true, message: 'Order created and email sent.', orderinfo_id });
+                          })
+                          .catch(emailErr => {
+                            console.error('Email sending failed:', emailErr);
+                            res.json({ success: true, message: 'Order created but email failed.', orderinfo_id });
+                          });
+                        });
                       });
                     });
                   }
@@ -334,63 +406,172 @@ const getOrderById = (req, res) => {
         });
     });
 };
+
 // Update order status
 const updateOrderStatus = (req, res) => {
-    const orderId = req.params.orderId;
-    const { status } = req.body;
+  const orderId = req.params.orderId;
+  const { status } = req.body;
 
-    if (!status) {
-        return res.status(400).json({ 
-            success: false, 
-            message: 'Status is required' 
-        });
-    }
-
-    // Validate status value
-    const validStatuses = ['Pending', 'Shipped', 'Delivered', 'Cancelled'];
-    if (!validStatuses.includes(status)) {
-        return res.status(400).json({ 
-            success: false, 
-            message: 'Invalid status value' 
-        });
-    }
-
-
-    let updateSql = 'UPDATE orderinfo SET status = ?';
-    const params = [status];
-
-    if (status === 'Shipped') {
-        updateSql += ', date_shipped = NOW()';
-    } else if (status === 'Delivered') {
-        updateSql += ', date_delivered = NOW()';
-    }
-
-    updateSql += ' WHERE orderinfo_id = ?';
-    params.push(orderId);
-
-    db.query(updateSql, params, (err, result) => {
-        if (err) {
-            console.error('Error updating order status:', err);
-            return res.status(500).json({ 
-                success: false, 
-                message: 'Failed to update order status',
-                error: err.message 
-            });
-        }
-
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ 
-                success: false, 
-                message: 'Order not found' 
-            });
-        }
-
-        res.json({ 
-            success: true, 
-            message: 'Order status updated successfully' 
-        });
+  if (!status) {
+    return res.status(400).json({
+      success: false,
+      message: 'Status is required',
     });
+  }
+
+  const validStatuses = ['Pending', 'Shipped', 'Delivered', 'Cancelled'];
+  if (!validStatuses.includes(status)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid status value',
+    });
+  }
+
+  let updateSql = 'UPDATE orderinfo SET status = ?';
+  const params = [status];
+
+  if (status === 'Shipped') {
+    updateSql += ', date_shipped = NOW()';
+  } else if (status === 'Delivered') {
+    updateSql += ', date_delivered = NOW()';
+  }
+
+  updateSql += ' WHERE orderinfo_id = ?';
+  params.push(orderId);
+
+  db.query(updateSql, params, (err, result) => {
+    if (err) {
+      console.error('Error updating order status:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to update order status',
+        error: err.message,
+      });
+    }
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found',
+      });
+    }
+
+    // ✅ Step 1: Fetch customer, shipping, and order info
+    const customerDetailsSql = `
+      SELECT 
+        u.email, CONCAT(c.fname, ' ', c.lname) AS fullName, 
+        s.region, s.rate, o.date_placed, o.date_shipped, o.date_delivered
+      FROM orderinfo o
+      JOIN customer c ON o.customer_id = c.customer_id
+      JOIN users u ON u.id = c.user_id
+      JOIN shipping s ON o.shipping_id = s.shipping_id
+      WHERE o.orderinfo_id = ?
+    `;
+
+    db.query(customerDetailsSql, [orderId], (err, userResult) => {
+      if (err || !userResult.length) {
+        console.error('Customer info error:', err);
+        return res.json({
+          success: true,
+          message: 'Order status updated, but customer info not found.',
+        });
+      }
+
+      const {
+        email,
+        fullName,
+        region,
+        rate,
+        date_placed,
+        date_shipped,
+        date_delivered
+      } = userResult[0];
+
+      // ✅ Step 2: Fetch item details
+      const itemDetailsSql = `
+        SELECT i.item_name, i.sell_price AS price, ol.quantity
+        FROM orderline ol
+        JOIN item i ON ol.item_id = i.item_id
+        WHERE ol.orderinfo_id = ?
+      `;
+
+      db.query(itemDetailsSql, [orderId], (err, itemRows) => {
+        if (err) {
+          console.error('Item fetch error:', err);
+          return res.json({
+            success: true,
+            message: 'Order status updated, but failed to fetch item details.',
+          });
+        }
+
+        const itemsHtml = itemRows.map(item => `
+          <tr>
+            <td>${item.item_name}</td>
+            <td>${item.quantity}</td>
+            <td>₱${parseFloat(item.price).toFixed(2)}</td>
+            <td>₱${(parseFloat(item.price) * item.quantity).toFixed(2)}</td>
+          </tr>
+        `).join('');
+
+        const subtotal = itemRows.reduce((sum, i) => sum + parseFloat(i.price) * i.quantity, 0);
+        const total = (subtotal + parseFloat(rate)).toFixed(2);
+
+        const statusMessages = {
+          Pending: 'Your order is now marked as <strong>Pending</strong>. We’ll prepare it shortly!',
+          Shipped: 'Great news! Your order has been <strong>shipped</strong> and is on its way.',
+          Delivered: 'Your order has been <strong>delivered</strong>. We hope you enjoy it!',
+          Cancelled: 'We’re sorry. Your order has been <strong>cancelled</strong>. Please contact us if this was a mistake.',
+        };
+
+        const formatDateTime = (date) =>
+          date ? new Date(date).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : '';
+
+        const message = `
+          <h3>Hi ${fullName || 'Customer'},</h3>
+          <p>${statusMessages[status]}</p>
+          <p><strong>Order ID:</strong> ${orderId}</p>
+          <p><strong>Date Placed:</strong> ${formatDateTime(date_placed)}</p>
+          ${date_shipped ? `<p><strong>Date Shipped:</strong> ${formatDateTime(date_shipped)}</p>` : ''}
+          ${date_delivered ? `<p><strong>Date Delivered:</strong> ${formatDateTime(date_delivered)}</p>` : ''}
+
+          <h4>Order Summary</h4>
+          <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">
+            <thead>
+              <tr><th>Item</th><th>Qty</th><th>Price</th><th>Subtotal</th></tr>
+            </thead>
+            <tbody>${itemsHtml}</tbody>
+          </table>
+          <p><strong>Shipping:</strong> ${region} - ₱${parseFloat(rate).toFixed(2)}</p>
+          <p><strong>Total:</strong> ₱${total}</p>
+
+          <br><p>Thank you for shopping at <strong>BunBun Threads</strong>!</p>
+        `;
+
+        sendEmail({
+          email,
+          subject: `BunBun Threads - Order #${orderId} Status Update: ${status}`,
+          message
+        })
+          .then(() => {
+            res.json({
+              success: true,
+              message: `Order status updated and email sent to ${email}`,
+            });
+          })
+          .catch(emailErr => {
+            console.error('Email sending failed:', emailErr);
+            res.json({
+              success: true,
+              message: 'Order status updated but email failed to send.',
+            });
+          });
+      });
+    });
+  });
 };
+
+
+
 
 const softDeleteOrder = (req, res) => {
   const orderId = req.params.orderId;
@@ -453,5 +634,6 @@ module.exports = {
   getOrderById,
   updateOrderStatus,
   softDeleteOrder,
-  restoreOrder
+  restoreOrder,
+  sendEmail
 };

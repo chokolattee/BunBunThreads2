@@ -110,4 +110,6 @@ $(document).ready(function () {
         const cart = getCart();
         $('#itemCount').text(cart.length).toggle(cart.length > 0);
     });
+
+    
 });
