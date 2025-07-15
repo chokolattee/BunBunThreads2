@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const nodemailer = require('nodemailer');
 const users = require('./routes/user');
 const itemRoutes = require('./routes/item');
 const dashboardRoutes = require('./routes/dashboard');

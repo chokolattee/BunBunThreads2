@@ -47,7 +47,7 @@ $(document).ready(async function () {
                     if (data === 'Shipped') badgeClass = 'badge-primary';
                     if (data === 'Delivered') badgeClass = 'badge-success';
                     if (data === 'Cancelled') badgeClass = 'badge-danger';
-                    if (data === 'Processing') badgeClass = 'badge-warning';
+                    if (data === 'Pending') badgeClass = 'badge-warning';
                     return `<span class="badge ${badgeClass}">${data}</span>`;
                 }
             },
@@ -84,7 +84,8 @@ $(document).ready(async function () {
                 month: 'short',
                 day: 'numeric',
                 hour: '2-digit',
-                minute: '2-digit'
+                minute: '2-digit',
+                hour12: true
             });
         } catch (error) {
             console.error('Error formatting date:', error);
@@ -98,7 +99,7 @@ $(document).ready(async function () {
         if (status === 'Shipped') badgeClass = 'badge-primary';
         if (status === 'Delivered') badgeClass = 'badge-success';
         if (status === 'Cancelled') badgeClass = 'badge-danger';
-        if (status === 'Processing') badgeClass = 'badge-warning';
+        if (status === 'Pending') badgeClass = 'badge-warning';
         
         return `<span class="badge ${badgeClass}">${status || 'Unknown'}</span>`;
     }
@@ -334,158 +335,145 @@ $(document).ready(async function () {
     });
 
     // Edit order status
-    $(document).on('click', '.edit-order', async function() {
-        const orderId = $(this).data('id');
-        
-        // Add debugging
-        console.log('Edit order clicked, ID:', orderId);
-        
-        if (!orderId) {
+$(document).on('click', '.edit-order', async function() {
+    const orderId = $(this).data('id');
+    console.log('Edit order clicked, ID:', orderId);
+
+    if (!orderId) {
+        Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: 'Order ID not found'
+        });
+        return;
+    }
+
+    try {
+        Swal.fire({
+            title: 'Loading...',
+            text: 'Fetching order details',
+            allowOutsideClick: false,
+            didOpen: () => {
+                Swal.showLoading();
+            }
+        });
+
+        const encodedOrderId = encodeURIComponent(orderId);
+        const response = await fetch(`${API_BASE_URL}/api/orders/admin/${encodedOrderId}`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            }
+        });
+
+        const responseData = await response.json();
+        Swal.close();
+
+        if (!response.ok || !responseData.success) {
+            throw new Error(responseData.message || 'Failed to fetch order details');
+        }
+
+        const currentStatus = responseData.data.status;
+
+        // Restrict editing for Delivered or Cancelled
+        if (currentStatus === 'Delivered' || currentStatus === 'Cancelled') {
             Swal.fire({
-                icon: 'error',
-                title: 'Error',
-                text: 'Order ID not found'
+                icon: 'warning',
+                title: 'Not Allowed',
+                text: `You cannot edit an order that is ${currentStatus}.`
             });
             return;
         }
-        
-        try {
-            // Show loading state
-            Swal.fire({
-                title: 'Loading...',
-                text: 'Fetching order details',
-                allowOutsideClick: false,
-                didOpen: () => {
-                    Swal.showLoading();
-                }
-            });
 
-            // Ensure orderId is properly encoded
-            const encodedOrderId = encodeURIComponent(orderId);
-            console.log('Fetching from URL:', `${API_BASE_URL}/api/orders/admin/${encodedOrderId}`);
+        $('#editOrderModal #status').val(currentStatus);
+        $('#updateStatusButton').data('id', orderId);
+        $('#updateStatusButton').data('current-status', currentStatus); // Save current status for validation
 
-            // Fetch order details to get current status
-            const response = await fetch(`${API_BASE_URL}/api/orders/admin/${encodedOrderId}`, {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                }
-            });
-            
-            console.log('Response status:', response.status);
-            const responseData = await response.json();
-            console.log('Response data:', responseData);
-            
-            Swal.close(); // Close loading dialog
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${responseData.message || 'Failed to fetch order details'}`);
-            }
-            
-            if (!responseData.success) {
-                throw new Error(responseData.message || 'Failed to fetch order details');
-            }
-            
-            // Populate the modal with status field
-            $('#editOrderModal #status').val(responseData.data.status);
-            
-            // Set the order ID in the update button
-            $('#updateStatusButton').data('id', orderId);
-            
-            // Show the modal
-            $('#editOrderModal').modal('show');
-        } catch (error) {
-            Swal.close(); // Make sure loading dialog is closed
-            console.error('Error editing order:', error);
-            Swal.fire({
-                icon: 'error',
-                title: 'Error',
-                text: error.message || 'Failed to load order details'
-            });
-        }
-    });
+        $('#editOrderModal').modal('show');
+    } catch (error) {
+        Swal.close();
+        console.error('Error editing order:', error);
+        Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: error.message || 'Failed to load order details'
+        });
+    }
+});
 
     // Update order status
-    $('#updateStatusButton').click(async function() {
-        const orderId = $(this).data('id');
-        const status = $('#editOrderModal #status').val();
-        
-        console.log('Update status clicked, ID:', orderId, 'Status:', status);
-        
-        if (!orderId) {
-            Swal.fire({
-                icon: 'error',
-                title: 'Error',
-                text: 'Order ID not found'
-            });
-            return;
-        }
-        
-        if (!status) {
-            Swal.fire({
-                icon: 'error',
-                title: 'Error',
-                text: 'Please select a status'
-            });
-            return;
-        }
-        
-        try {
-            // Show loading state
-            Swal.fire({
-                title: 'Updating...',
-                text: 'Updating order status',
-                allowOutsideClick: false,
-                didOpen: () => {
-                    Swal.showLoading();
-                }
-            });
+$('#updateStatusButton').click(async function() {
+    const orderId = $(this).data('id');
+    const currentStatus = $(this).data('current-status');
+    const newStatus = $('#editOrderModal #status').val();
 
-            const encodedOrderId = encodeURIComponent(orderId);
-            console.log('Updating URL:', `${API_BASE_URL}/api/orders/admin/${encodedOrderId}/status`);
+    console.log('Update status clicked, ID:', orderId, 'New Status:', newStatus, 'Current Status:', currentStatus);
 
-            const response = await fetch(`${API_BASE_URL}/api/orders/admin/${encodedOrderId}/status`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify({ status })
-            });
-            
-            console.log('Update response status:', response.status);
-            const responseData = await response.json();
-            console.log('Update response data:', responseData);
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${responseData.message || 'Failed to update order status'}`);
+    if (!orderId || !newStatus) {
+        Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: 'Order ID and new status are required'
+        });
+        return;
+    }
+
+    // Prevent changing to 'Cancelled' if current status is 'Shipped'
+    if (currentStatus === 'Shipped' && newStatus === 'Cancelled') {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Invalid Action',
+            text: 'You cannot cancel an order that has already been shipped.'
+        });
+        return;
+    }
+
+    try {
+        Swal.fire({
+            title: 'Updating...',
+            text: 'Updating order status',
+            allowOutsideClick: false,
+            didOpen: () => {
+                Swal.showLoading();
             }
-            
-            if (!responseData.success) {
-                throw new Error(responseData.message || 'Failed to update order status');
-            }
-            
-            Swal.fire({
-                icon: 'success',
-                title: 'Success',
-                text: 'Order status updated successfully'
-            });
-            
-            // Close modal and reload orders
-            $('#editOrderModal').modal('hide');
-            otable.ajax.reload();
-        } catch (error) {
-            console.error('Error updating order status:', error);
-            Swal.fire({
-                icon: 'error',
-                title: 'Error',
-                text: error.message || 'Failed to update order status'
-            });
-        }
-    });
+        });
 
-    // Make functions globally available if needed
+        const encodedOrderId = encodeURIComponent(orderId);
+        const response = await fetch(`${API_BASE_URL}/api/orders/admin/${encodedOrderId}/status`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({ status: newStatus })
+        });
+
+        const responseData = await response.json();
+        Swal.close();
+
+        if (!response.ok || !responseData.success) {
+            throw new Error(responseData.message || 'Failed to update order status');
+        }
+
+        Swal.fire({
+            icon: 'success',
+            title: 'Success',
+            text: 'Order status updated successfully'
+        });
+
+        $('#editOrderModal').modal('hide');
+        otable.ajax.reload();
+    } catch (error) {
+        console.error('Error updating order status:', error);
+        Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: error.message || 'Failed to update order status'
+        });
+    }
+});
+
     window.showOrderDetailsModal = showOrderDetailsModal;
     window.formatDate = formatDate;
     window.getStatusBadge = getStatusBadge;

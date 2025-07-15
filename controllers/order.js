@@ -14,6 +14,7 @@ const getShippingOptions = (req, res) => {
 };
 
 const createOrder = (req, res) => {
+  
   const { customer_id, date_placed, shipping_id, status, items } = req.body;
 
   if (!customer_id || !date_placed || !shipping_id || !items || !Array.isArray(items) || items.length === 0) {
@@ -58,10 +59,10 @@ const createOrder = (req, res) => {
           // All items have sufficient stock, proceed with order creation
           const orderInfoSql = `
             INSERT INTO orderinfo (customer_id, date_placed, shipping_id, status)
-            VALUES (?, ?, ?, ?)
+            VALUES (?, NOW(), ?, ?)
           `;
 
-          db.query(orderInfoSql, [customer_id, date_placed, shipping_id, status], (err, result) => {
+          db.query(orderInfoSql, [customer_id, shipping_id, status], (err, result) => {
             if (err) {
               return db.rollback(() => {
                 console.error('Insert orderinfo error:', err);
@@ -139,6 +140,7 @@ const createOrder = (req, res) => {
 const getOrdersByCustomer = (req, res) => {
     const customerId = req.params.customerId;
 
+    // Get orders + shipping info
     const sql = `
       SELECT 
         o.orderinfo_id,
@@ -238,9 +240,10 @@ const getOrdersByCustomer = (req, res) => {
 
         const formattedOrders = orders.map(order => ({
             ...order,
-            date_placed: order.date_placed ? new Date(order.date_placed).toLocaleDateString() : null,
-            date_shipped: order.date_shipped ? new Date(order.date_shipped).toLocaleDateString() : null,
-            date_delivered: order.date_delivered ? new Date(order.date_delivered).toLocaleDateString() : null
+            date_placed: order.date_placed ? new Date(order.date_placed).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) : null,
+date_shipped: order.date_shipped ? new Date(order.date_shipped).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) : null,
+date_delivered: order.date_delivered ? new Date(order.date_delivered).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) : null,
+
         }));
 
         return res.status(200).json({
@@ -388,6 +391,8 @@ const updateOrderStatus = (req, res) => {
         });
     });
 };
+
+
 
 module.exports = {
   createOrder,
