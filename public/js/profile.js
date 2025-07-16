@@ -130,6 +130,95 @@ $(document).ready(function () {
         });
     });
 
+    $('#deactivateBtn').on('click', function() {
+    const userId = localStorage.getItem('userId');
+    const token = localStorage.getItem('token');
+    
+    Swal.fire({
+        title: 'Confirm Account Deactivation',
+        html: `
+            <div class="text-start">
+                <p class="mb-3">This will permanently deactivate your account. To reactivate, you'll need to contact support.</p>
+                <div class="form-group">
+                    <label for="confirmPassword" class="form-label">Confirm Password</label>
+                    <input type="password" id="confirmPassword" class="form-control" placeholder="Enter your password">
+                </div>
+            </div>
+        `,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Deactivate Account',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#dc3545',
+        focusConfirm: false,
+        preConfirm: () => {
+            const password = $('#confirmPassword').val();
+            if (!password) {
+                Swal.showValidationMessage('Password is required');
+                return false;
+            }
+            return { password };
+        }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const { password } = result.value;
+            
+            // Show loading
+            Swal.fire({
+                title: 'Processing...',
+                allowOutsideClick: false,
+                didOpen: () => Swal.showLoading()
+            });
+
+            $.ajax({
+                url: `${API_BASE_URL}api/users/deactivate`,
+                method: 'POST',
+                headers: { 
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                data: JSON.stringify({
+                    userId: userId,
+                    password: password
+                }),
+                success: function(response) {
+                    Swal.close();
+                    if (response.success) {
+                        Swal.fire({
+                            title: 'Account Deactivated',
+                            text: 'Your account has been successfully deactivated.',
+                            icon: 'success'
+                        }).then(() => {
+                            // Clear local storage and redirect
+                            localStorage.clear();
+                            window.location.href = '/login.html';
+                        });
+                    } else {
+                        Swal.fire({
+                            title: 'Error',
+                            text: response.error || 'Failed to deactivate account',
+                            icon: 'error'
+                        });
+                    }
+                },
+                error: function(xhr) {
+                    Swal.close();
+                    let errorMsg = 'Failed to deactivate account';
+                    if (xhr.responseJSON && xhr.responseJSON.error) {
+                        errorMsg = xhr.responseJSON.error;
+                    } else if (xhr.status === 401) {
+                        errorMsg = 'Session expired. Please login again.';
+                    }
+                    Swal.fire({
+                        title: 'Error',
+                        text: errorMsg,
+                        icon: 'error'
+                    });
+                }
+            });
+        }
+    });
+});
     // Initialize everything
     initHeader();
     fetchProfileData();

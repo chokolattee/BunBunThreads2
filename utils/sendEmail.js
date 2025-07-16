@@ -13,8 +13,13 @@ const sendEmail = async ({ email, subject, message }) => {
   const mailOptions = {
     from: '"BunBun Threads" <noreply@bunbunthreads.com>',
     to: email,
-    subject: subject,
-    html: message
+      subject: subject,
+      html: message,
+      attachments: attachments.map(attachment => ({
+        filename: attachment.filename,
+        content: attachment.content,
+        contentType: attachment.contentType
+      }))
   };
 
   await transporter.sendMail(mailOptions);

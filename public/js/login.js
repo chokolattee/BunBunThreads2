@@ -7,12 +7,25 @@ $(document).ready(function () {
             password: $('input[name="password"]').val()
         };
 
+        // Show loading
+        $('#loginMsg').text('Authenticating...').css('color', 'blue');
+        
         $.ajax({
             url: `${url}api/users/login`,
             method: 'POST',
             contentType: 'application/json',
             data: JSON.stringify(formData),
             success: function (res) {
+                if (res.user && res.user.deleted_at) {
+                    // Account is deactivated
+                    $('#loginMsg').html(`
+                        <div class="alert alert-danger">
+                            ❌ Your account is deactivated. Please contact support.
+                        </div>
+                    `);
+                    return;
+                }
+                
                 $('#loginMsg').text('✅ Login successful!').css('color', 'green');
                 localStorage.setItem('token', res.token);
                 localStorage.setItem('userId', res.user.id);
@@ -21,7 +34,13 @@ $(document).ready(function () {
                 checkProfileCompletion(res.user.id, res.token);
             },
             error: function (err) {
-                $('#loginMsg').text('❌ Login failed. Check your credentials.').css('color', 'red');
+                let errorMsg = '❌ Login failed. Check your credentials.';
+                if (err.responseJSON && err.responseJSON.message) {
+                    errorMsg = `❌ ${err.responseJSON.message}`;
+                }
+                $('#loginMsg').html(`
+                    <div class="alert alert-danger">${errorMsg}</div>
+                `);
                 console.log(err);
             }
         });

@@ -25,37 +25,104 @@ const registerUser = async (req, res) => {
 // ----------------- Login -----------------
 const loginUser = (req, res) => {
   const { email, password } = req.body;
-  const sql = 'SELECT id, name, email, password FROM users WHERE email = ? AND deleted_at IS NULL';
+
+  if (!email || !password) {
+    return res.status(400).json({
+      success: false,
+      message: 'Email and password are required',
+      code: 'MISSING_CREDENTIALS'
+    });
+  }
+
+  const sql = `
+    SELECT id, name, email, password, status 
+    FROM users 
+    WHERE email = ?
+  `;
 
   connection.execute(sql, [email], async (err, results) => {
     if (err) {
-      console.log(err);
-      return res.status(500).json({ error: 'Error logging in', details: err });
+      console.error('Database error:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Database error during login',
+        code: 'DATABASE_ERROR'
+      });
     }
+
+    // No user found
     if (results.length === 0) {
-      return res.status(401).json({ success: false, message: 'Invalid email or password' });
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password',
+        code: 'INVALID_CREDENTIALS'
+      });
     }
 
     const user = results[0];
-    const safePasswordHash = user.password.replace(/^\$2y\$/, '$2b$');
-    const match = await bcrypt.compare(password, safePasswordHash);
 
-    if (!match) {
-      return res.status(401).json({ success: false, message: 'Invalid email or password' });
+    // Check if account is deactivated
+    if (user.status === 'Deactivated') {
+      return res.status(403).json({
+        success: false,
+        message: 'Account is deactivated. Please contact support.',
+        code: 'ACCOUNT_DEACTIVATED',
+      });
     }
 
-    delete user.password;
-    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET);
+    // Verify password
+    try {
+      const safePasswordHash = user.password.replace(/^\$2y\$/, '$2b$');
+      const match = await bcrypt.compare(password, safePasswordHash);
 
-const updateSql = 'UPDATE users SET token = ? WHERE id = ?';
-connection.execute(updateSql, [token, user.id], (updateErr) => {
-  if (updateErr) {
-    console.log(updateErr);
-    return res.status(500).json({ error: 'Failed to save token', details: updateErr });
-  }
+      if (!match) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid email or password',
+          code: 'INVALID_CREDENTIALS'
+        });
+      }
 
-  return res.status(200).json({ success: "welcome back", user, token });
-});
+      const token = jwt.sign({
+        id: user.id,
+        email: user.email
+      }, process.env.JWT_SECRET, {
+        expiresIn: '24h'
+      });
+
+      const updateSql = 'UPDATE users SET token = ? WHERE id = ?';
+      connection.execute(updateSql, [token, user.id], (updateErr) => {
+        if (updateErr) {
+          console.error('Token update error:', updateErr);
+          return res.status(500).json({
+            success: false,
+            message: 'Error updating user session',
+            code: 'TOKEN_UPDATE_FAILED'
+          });
+        }
+
+        const userResponse = {
+          id: user.id,
+          name: user.name,
+          email: user.email
+        };
+
+        return res.status(200).json({
+          success: true,
+          message: 'Login successful',
+          user: userResponse,
+          token
+        });
+      });
+
+    } catch (hashError) {
+      console.error('Password hash error:', hashError);
+      return res.status(500).json({
+        success: false,
+        message: 'Error verifying password',
+        code: 'PASSWORD_VERIFICATION_FAILED'
+      });
+    }
   });
 };
 
@@ -143,30 +210,92 @@ const updateUser = (req, res) => {
 };
 
 // ----------------- Deactivate User -----------------
-const deactivateUser = (req, res) => {
-  const { email } = req.body;
-  if (!email) {
-    return res.status(400).json({ error: 'Email is required' });
+const deactivateUser = async (req, res) => {
+  const { userId, password } = req.body;
+
+  if (!userId || !password) {
+    return res.status(400).json({
+      success: false,
+      error: 'User ID and password are required',
+      code: 'MISSING_FIELDS'
+    });
   }
 
-  const sql = 'UPDATE users SET deleted_at = ? WHERE email = ?';
-  const timestamp = new Date();
+  try {
+    // Start transaction
+    await connection.promise().beginTransaction();
 
-  connection.execute(sql, [timestamp, email], (err, result) => {
-    if (err) {
-      console.log(err);
-      return res.status(500).json({ error: 'Error deactivating user', details: err });
+    try {
+      // 1. Get user data including password hash
+      const [userRows] = await connection.promise().execute(
+        `SELECT id, password, email, status 
+         FROM users 
+         WHERE id = ?`,
+        [userId]
+      );
+
+      if (userRows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'User not found',
+          code: 'USER_NOT_FOUND'
+        });
+      }
+
+      const user = userRows[0];
+
+    // Verify password (with hash conversion if needed)
+      const passwordHash = user.password.replace(/^\$2y\$/, '$2b$');
+      const passwordMatch = await bcrypt.compare(password, passwordHash);
+
+      if (!passwordMatch) {
+        return res.status(401).json({
+          success: false,
+          error: 'Incorrect password',
+          code: 'INVALID_PASSWORD'
+        });
+      }
+
+      // Deactivate user account 
+      const [result] = await connection.promise().execute(
+        `UPDATE users 
+         SET status = 'Deactivated', 
+             token = NULL, 
+             updated_at = NOW() 
+         WHERE id = ?`,
+        [userId]
+      );
+
+      if (result.affectedRows === 0) {
+        throw new Error('No rows affected - user not updated');
+      }
+
+      // Commit transaction
+      await connection.promise().commit();
+
+      return res.status(200).json({
+        success: true,
+        message: 'User deactivated successfully',
+        userId,
+        updated_at: new Date().toISOString()
+      });
+
+    } catch (transactionErr) {
+      // Rollback on error
+      await connection.promise().rollback();
+      console.error('Transaction error:', transactionErr);
+      throw transactionErr;
     }
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    return res.status(200).json({
-      success: true,
-      message: 'User deactivated successfully',
-      email,
-      deleted_at: timestamp
+
+  } catch (err) {
+    console.error('Deactivation error:', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Server error during deactivation',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined,
+      code: 'SERVER_ERROR'
     });
-  });
+  }
 };
 
 // ----------------- Get Customer Profile -----------------
@@ -183,148 +312,147 @@ const getCustomerProfile = (req, res) => {
 };
 
 const updateUserRole = (req, res) => {
-    const id = req.params.id;
-    const { role } = req.body;
+  const id = req.params.id;
+  const { role } = req.body;
 
-    if (!role) {
-        return res.status(400).json({ error: 'Role is required' });
-    }
+  if (!role) {
+    return res.status(400).json({ error: 'Role is required' });
+  }
 
-    const sql = `
+  const sql = `
         UPDATE users
         SET role = ?, updated_at = NOW()
         WHERE id = ? AND deleted_at IS NULL
     `;
-    const values = [role, id];
+  const values = [role, id];
 
-    try {
-        connection.execute(sql, values, (err, result) => {
-            if (err) {
-                console.log(err);
-                return res.status(500).json({ error: 'Error updating user role', details: err });
-            }
+  try {
+    connection.execute(sql, values, (err, result) => {
+      if (err) {
+        console.log(err);
+        return res.status(500).json({ error: 'Error updating user role', details: err });
+      }
 
-            if (result.affectedRows === 0) {
-                return res.status(404).json({ error: 'User not found' });
-            }
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
 
-            return res.status(200).json({
-                success: true,
-                message: 'User role updated successfully'
-            });
-        });
-    } catch (error) {
-        console.log(error);
-        return res.status(500).json({ error: 'Server error' });
-    }
+      return res.status(200).json({
+        success: true,
+        message: 'User role updated successfully'
+      });
+    });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({ error: 'Server error' });
+  }
 };
 
 const updateUserStatus = (req, res) => {
-    const id = req.params.id;
-    const { status } = req.body;
+  const id = req.params.id;
+  const { status } = req.body;
 
-    if (!status) {
-        return res.status(400).json({ error: 'Status is required' });
-    }
+  if (!status) {
+    return res.status(400).json({ error: 'Status is required' });
+  }
 
-    const sql = `
+  const sql = `
         UPDATE users
         SET status = ?, updated_at = NOW()
         WHERE id = ? AND deleted_at IS NULL
     `;
-    const values = [status, id];
+  const values = [status, id];
 
-    try {
-        connection.execute(sql, values, (err, result) => {
-            if (err) {
-                console.log(err);
-                return res.status(500).json({ error: 'Error updating user status', details: err });
-            }
+  try {
+    connection.execute(sql, values, (err, result) => {
+      if (err) {
+        console.log(err);
+        return res.status(500).json({ error: 'Error updating user status', details: err });
+      }
 
-            if (result.affectedRows === 0) {
-                return res.status(404).json({ error: 'User not found' });
-            }
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
 
-            return res.status(200).json({
-                success: true,
-                message: 'User status updated successfully'
-            });
-        });
-    } catch (error) {
-        console.log(error);
-        return res.status(500).json({ error: 'Server error' });
-    }
+      return res.status(200).json({
+        success: true,
+        message: 'User status updated successfully'
+      });
+    });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({ error: 'Server error' });
+  }
 };
 
 const getAllUsers = (req, res) => {
-    const sql = `
+  const sql = `
         SELECT u.*, c.addressline, c.town, c.phone
         FROM users u
         LEFT JOIN customer c ON u.id = c.user_id
-        WHERE u.deleted_at IS NULL
         ORDER BY u.id DESC
     `;
 
-    connection.execute(sql, (err, users) => {
-        if (err) {
-            console.error('Database error:', err);
-            return res.status(500).json({ 
-                success: false,
-                error: 'Database error fetching users', 
-                details: err.message 
-            });
-        }
+  connection.execute(sql, (err, users) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({
+        success: false,
+        error: 'Database error fetching users',
+        details: err.message
+      });
+    }
 
-        return res.status(200).json({
-            success: true,
-            rows: users
-        });
+    return res.status(200).json({
+      success: true,
+      rows: users
     });
+  });
 };
 
 const getSingleUser = (req, res) => {
-    const id = req.params.id;
-    
-    // Validate ID
-    if (!id || isNaN(id)) {
-        return res.status(400).json({ 
-            success: false,
-            error: 'Invalid user ID' 
-        });
-    }
+  const id = req.params.id;
 
-    const sql = `
+  // Validate ID
+  if (!id || isNaN(id)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid user ID'
+    });
+  }
+
+  const sql = `
         SELECT u.*, c.addressline, c.town, c.phone
         FROM users u
         LEFT JOIN customer c ON u.id = c.user_id
         WHERE u.id = ? AND u.deleted_at IS NULL
     `;
-    
-    const values = [parseInt(id)];
 
-    connection.execute(sql, values, (err, result) => {
-        if (err) {
-            console.error('Database error:', err);
-            return res.status(500).json({ 
-                success: false,
-                error: 'Database error fetching user', 
-                details: err.message 
-            });
-        }
-        
-        if (result.length === 0) {
-            return res.status(404).json({ 
-                success: false,
-                error: 'User not found' 
-            });
-        }
-        
-        console.log('User fetched successfully:', result[0]);
-        return res.status(200).json({ 
-            success: true, 
-            result: result[0]
-        });
+  const values = [parseInt(id)];
+
+  connection.execute(sql, values, (err, result) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({
+        success: false,
+        error: 'Database error fetching user',
+        details: err.message
+      });
+    }
+
+    if (result.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    console.log('User fetched successfully:', result[0]);
+    return res.status(200).json({
+      success: true,
+      result: result[0]
     });
+  });
 };
 // const deleteUser = (req, res) => {
 //     const id = req.params.id;
@@ -359,14 +487,14 @@ const getSingleUser = (req, res) => {
 // };
 
 
-module.exports = { 
-  registerUser, 
-  loginUser, 
-  updateUser, 
-  deactivateUser, 
-  updateUserRole, 
-  updateUserStatus, 
-  getCustomerProfile, 
-  getAllUsers, 
-  getSingleUser 
+module.exports = {
+  registerUser,
+  loginUser,
+  updateUser,
+  deactivateUser,
+  updateUserRole,
+  updateUserStatus,
+  getCustomerProfile,
+  getAllUsers,
+  getSingleUser
 };
